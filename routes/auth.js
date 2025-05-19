@@ -21,7 +21,7 @@ router.post('/registro', async (req, res) => {
 
     const hash = await bcrypt.hash(password, 10);
     const nuevoUsuario = new User({
-      nombre,
+      nombre, // <-- Campo "nombre" se guarda aquí
       email,
       password: hash
     });
@@ -59,7 +59,11 @@ router.post('/login', async (req, res) => {
       { expiresIn: '8h' }
     );
 
-    res.json({ token });
+    // ¡Asegúrate de incluir el nombre en la respuesta!
+    res.json({ 
+      token,
+      nombre: usuario.nombre // <-- Este campo es clave
+    });
 
   } catch (error) {
     console.error(error);
