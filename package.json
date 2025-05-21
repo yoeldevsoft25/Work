@@ -12,7 +12,8 @@
     "express": "^4.19.2",
     "jsonwebtoken": "^9.0.2",
     "mongodb": "^6.16.0",
-    "mongoose": "^8.15.0"
+    "mongoose": "^8.15.0",
+    "node-fetch": "^2.7.0"
   },
   "devDependencies": {
     "@types/axios": "^0.9.36"
