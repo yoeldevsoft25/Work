@@ -1,97 +1,133 @@
 // backend/index.js (o index.cjs)
-require('dotenv').config(); // ----> ¡CRUCIAL! Cargar variables de entorno PRIMERO
-
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const mongoose = require('mongoose');
+const helmet = require('helmet');
 
 // Importar rutas
 const authRoutes = require('./routes/auth');
 const paymentsRoutes = require('./routes/payments');
-// const serviceRoutes = require('./routes/services'); // Descomenta si tienes rutas de servicios
 
 const app = express();
 
-// Configuración de CORS
-const frontendUrl = process.env.FRONTEND_URL || 'https://viotech.com.co'; // URL por defectoS
-console.log(`CONFIG: Permitiendo CORS para el origen: ${frontendUrl}`);
-app.use(cors({
-  origin: frontendUrl,
-  // credentials: true, // Descomenta si usas cookies de sesión seguras
+// ==================================================
+// 1. Configuración de Seguridad con helmet
+// ==================================================
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      imgSrc: [ 
+        "'self'", 
+        'data:', 
+        'https://www.facebook.com',
+        'https://www.google-analytics.com',
+        'https://checkout.wompi.co'
+      ],
+      scriptSrc: [
+        "'self'", 
+        'https://connect.facebook.net',
+        'https://www.googletagmanager.com'
+      ],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      frameSrc: ["'self'", 'https://checkout.wompi.co'],
+      fontSrc: ["'self'", 'data:']
+    }
+  },
+  crossOriginResourcePolicy: { policy: "cross-origin" } // Para imágenes de terceros
 }));
 
-// Middlewares para parsear el cuerpo de las solicitudes
-// Para el webhook de Wompi, `express.raw()` se aplica directamente en la ruta específica.
-app.use(express.json()); // Para parsear application/json
-app.use(express.urlencoded({ extended: true })); // Para parsear application/x-www-form-urlencoded
+// ==================================================
+// 2. Configuración de CORS
+// ==================================================
+const frontendUrl = process.env.FRONTEND_URL || 'https://viotech.com.co';
+console.log(`CONFIG: Permitiendo CORS para el origen: ${frontendUrl}`);
 
-// Registro de Rutas
+app.use(cors({
+  origin: frontendUrl,
+  methods: ['GET', 'POST', 'PUT', 'DELETE'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
+
+// ==================================================
+// 3. Middlewares para parsear solicitudes
+// ==================================================
+app.use(express.json({ limit: '10kb' }));
+app.use(express.urlencoded({ extended: true, limit: '10kb' }));
+
+// ==================================================
+// 4. Registro de Rutas
+// ==================================================
 app.use('/api/auth', authRoutes);
 app.use('/api/payments', paymentsRoutes);
-// app.use('/api/services', serviceRoutes); // Descomenta si tienes rutas de servicios
 
-// Ruta de prueba simple para verificar que el servidor está arriba
+// ==================================================
+// 5. Ruta de salud del servidor
+// ==================================================
 app.get('/api/health', (req, res) => {
   res.status(200).json({ 
     status: 'UP', 
-    message: 'Servidor VioTech Backend está operativo.',
     timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV || 'development'
+    environment: process.env.NODE_ENV || 'development',
+    dbStatus: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected'
   });
 });
 
-// Manejador de errores global (debe ser el último middleware)
+// ==================================================
+// 6. Manejador de errores global
+// ==================================================
 app.use((err, req, res, next) => {
-  console.error("----------------------------------------");
-  console.error("ERROR GLOBAL NO CONTROLADO:", err.message);
-  if (process.env.NODE_ENV === 'development' || !process.env.NODE_ENV) { // Mostrar stack en desarrollo o si NODE_ENV no está seteado
-    console.error("STACK TRACE:", err.stack);
-  }
-  console.error("----------------------------------------");
-  
-  const statusCode = err.status || err.statusCode || 500;
-  const errorMessage = err.message || 'Ocurrió un error interno en el servidor.';
-  
+  const statusCode = err.statusCode || 500;
+  const message = process.env.NODE_ENV === 'production' 
+    ? 'Error interno del servidor' 
+    : err.message;
+
+  console.error(`[${new Date().toISOString()}] Error:`, {
+    message: err.message,
+    stack: process.env.NODE_ENV === 'development' ? err.stack : undefined,
+    path: req.path,
+    method: req.method
+  });
+
   res.status(statusCode).json({
-    error: 'Error interno del servidor.',
-    message: (process.env.NODE_ENV === 'development' || !process.env.NODE_ENV) ? errorMessage : 'Ocurrió un problema inesperado.',
-    // ...(process.env.NODE_ENV === 'development' && { stack: err.stack }) // Opcional: enviar stack en desarrollo
+    success: false,
+    message,
+    ...(process.env.NODE_ENV === 'development' && { error: err.message })
   });
 });
 
-// Conexión a MongoDB y arranque del servidor
+// ==================================================
+// 7. Conexión a MongoDB y arranque del servidor
+// ==================================================
 const MONGO_URI = process.env.MONGO_URI;
 const PORT = process.env.PORT || 4000;
 
 if (!MONGO_URI) {
-  console.error('CRITICAL ERROR: MONGO_URI no está definido en el archivo .env. El servidor no puede iniciar.');
-  process.exit(1); // Termina el proceso si no hay URI de MongoDB
-}
-if (!process.env.JWT_SECRET) {
-  console.error('CRITICAL ERROR: JWT_SECRET no está definido en el archivo .env. La autenticación fallará.');
-  // Podrías decidir terminar el proceso aquí también: process.exit(1);
+  console.error('❌ CRITICAL: MONGO_URI no definido en .env');
+  process.exit(1);
 }
 
-mongoose.connect(MONGO_URI)
-  .then(() => {
-    console.log('✅ Conectado a MongoDB Atlas exitosamente.');
-    app.listen(PORT, () => {
-      console.log(`🚀 Servidor VioTech Backend corriendo en http://localhost:${PORT}`);
-      console.log(`🔧 Entorno actual: ${process.env.NODE_ENV || 'development'}`);
-      // Log para JWT_SECRET (solo para depuración inicial, considera quitarlo en producción)
-      if (process.env.NODE_ENV === 'development') {
-          console.log(`DEBUG: JWT_SECRET cargada: ${process.env.JWT_SECRET ? 'Sí (longitud: ' + process.env.JWT_SECRET.length + ')' : 'NO !!!'}`);
-      }
+mongoose.connect(MONGO_URI, {
+  useNewUrlParser: true,
+  useUnifiedTopology: true,
+  serverSelectionTimeoutMS: 5000
+})
+.then(() => {
+  console.log('✅ Conectado a MongoDB Atlas');
+  app.listen(PORT, () => {
+    console.log(`🚀 Servidor en http://localhost:${PORT}`);
+    console.log('🔍 Variables de entorno verificadas:', {
+      nodeEnv: process.env.NODE_ENV,
+      jwtSecret: process.env.JWT_SECRET ? 'OK' : 'MISSING',
+      wompiPublicKey: process.env.WOMPI_PUBLIC_KEY ? 'OK' : 'MISSING'
     });
-  })
-  .catch(err => {
-    console.error('❌ Error al conectar con MongoDB:', err.message);
-    if (err.name === 'MongoNetworkError') {
-        console.error('Detalle: Problema de red. Verifica tu conexión a internet o la configuración de IP en Atlas.');
-    } else if (err.name === 'MongoParseError') {
-        console.error('Detalle: La URI de MongoDB podría estar malformada.');
-    } else if (err.message.includes('authentication fail')) {
-        console.error('Detalle: Fallo de autenticación con MongoDB. Verifica tus credenciales (usuario/contraseña) en la MONGO_URI.');
-    }
-    process.exit(1); // Termina el proceso en caso de error de conexión a la DB
   });
+})
+.catch(err => {
+  console.error('❌ Error de conexión a MongoDB:', err.message);
+  if (err.name === 'MongoServerSelectionError') {
+    console.error('Verifica tu conexión a internet y la lista de IPs en MongoDB Atlas');
+  }
+  process.exit(1);
+});
