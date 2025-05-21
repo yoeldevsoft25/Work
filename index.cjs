@@ -13,7 +13,7 @@ const paymentsRoutes = require('./routes/payments');
 const app = express();
 
 // Configuración de CORS
-const frontendUrl = process.env.FRONTEND_URL || 'https://viotech.com.co/'; // URL por defectoS
+const frontendUrl = process.env.FRONTEND_URL || 'https://viotech.com.co'; // URL por defectoS
 console.log(`CONFIG: Permitiendo CORS para el origen: ${frontendUrl}`);
 app.use(cors({
   origin: frontendUrl,
